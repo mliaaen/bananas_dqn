@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+PYTORCH_URL="https://jhui.github.io/2018/02/09/PyTorch-Basic-operations/"
 
 
 BUFFER_SIZE = int(1e5)  # replay buffer size 1e5
@@ -59,7 +60,6 @@ class Agent():
         # Learn every UPDATE_EVERY time steps.
         self.t_step = (self.t_step + 1) % UPDATE_EVERY
         if self.t_step == 0:
-            #print("update")
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > BATCH_SIZE:
                 experiences = self.memory.sample()
@@ -74,14 +74,14 @@ class Agent():
             eps (float): epsilon, for epsilon-greedy action selection
         """
         state = torch.from_numpy(state).float().unsqueeze(0).to(device)
-        self.qnetwork_local.eval()
-        with torch.no_grad():
-            action_values = self.qnetwork_local(state)
-        self.qnetwork_local.train()
+        self.qnetwork_local.eval() # will notify all your layers that you are in eval mode
+        with torch.no_grad():      # impacts the autograd engine and deactivate it
+            action_values = self.qnetwork_local(state) # evaluate and get the action values
+        self.qnetwork_local.train() # train local network
         
         # Epsilon-greedy action selection
         if random.random() > eps:
-            return np.argmax(action_values.cpu().data.numpy())
+            return np.argmax(action_values.cpu().data.numpy()) 
         else:
             return random.choice(np.arange(self.action_size))
 
@@ -94,14 +94,18 @@ class Agent():
             gamma (float): discount factor
         """
         states, actions, rewards, next_states, dones = experiences
-        
+
+        # adjust the rewards between -1 and 1 (in the banana env this had no effect)
         rewards_ = torch.clamp(rewards, min=-1., max=1.)
         
 
         # Get max predicted Q values (for next states) from target model
         Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
-        # Compute Q targets for current states 
-        Q_targets = rewards_ + (gamma * Q_targets_next * (1 - dones))
+        
+        # Compute Q targets for current states (skip the dones)
+        # y_i = r + γ * maxQhat
+        # y_i = r, if done
+        Q_targets = rewards_ + (gamma * Q_targets_next * (1 - dones))   
 
         # Get expected Q values from local model
         Q_expected = self.qnetwork_local(states).gather(1, actions)
@@ -145,10 +149,6 @@ class DDQNAgent(Agent):
         '''
         super(DDQNAgent, self).__init__(state_size, action_size, seed)
 
-        # Replay memory
-        #self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
-        # Initialize time step (for updating every UPDATE_EVERY steps)
-        #self.t_step = 0
 
     def learn(self, experiences, gamma):
         '''Update value parameters using given batch of experience tuples.
@@ -159,13 +159,17 @@ class DDQNAgent(Agent):
         states, actions, rewards, next_states, dones = experiences
         rewards_ = torch.clamp(rewards, min=-1., max=1.)
 
+
         # arg max_{a} \hat{Q}(s_{t+1}, a, θ_t)
         argmax_actions = self.qnetwork_local(next_states).detach().max(1)[1].unsqueeze(1)
+        
         # max_Qhat :=  \hat{Q}(s_{t+1}, argmax_actions, θ^−)
         max_Qhat = self.qnetwork_target(next_states).gather(1, argmax_actions)
+        
         # y_i = r + γ * maxQhat
         # y_i = r, if done
         Q_target = rewards_ + (gamma * max_Qhat * (1 - dones))
+        
         # Q(\phi(s_t), a_j; \theta)
         Q_expected = self.qnetwork_local(states).gather(1, actions)
 
